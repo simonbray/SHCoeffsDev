@@ -36,6 +36,16 @@ RUN micromamba create -y -p $MAMBA_ROOT_PREFIX/envs/pyenv \
     --channel=conda-forge \
     --channel=defaults
 
+RUN micromamba create -y -p $MAMBA_ROOT_PREFIX/envs/lirasearch \
+    python=3.11 \
+    tqdm=4.67.1 \
+    pyignite=0.6.1 \
+    scipy=1.15.2 \
+    colorama=0.4.6 \
+    numpy=2.2.6 \
+    --channel=conda-forge \
+    --channel=defaults
+
 # Activate environment by default
 ENV PATH=$MAMBA_ROOT_PREFIX/envs/pyenv/bin:$PATH
 
@@ -66,13 +76,14 @@ WORKDIR /opt/GitRepos
 # Clone git repos
 RUN git clone https://github.com/AstexUK/ESP_DNN.git
 RUN git clone https://github.com/AstexUK/esp-surface-generator.git
-ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
+#ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
 RUN git clone https://github.com/simonbray/SHCoeffsDev.git
 
 # Install from the git repos
 RUN cd ESP_DNN && python setup.py install && cd ..
 RUN cd esp-surface-generator/ && npm install && cd .. && ln -s /opt/GitRepos/esp-surface-generator/cli.js /usr/bin/esp-surface-generator
 RUN ln -s /opt/GitRepos/SHCoeffsDev/sh_coeffs.jl /usr/bin/sh-coeff-calculator && ln -s /opt/GitRepos/SHCoeffsDev/Geotools.jl /usr/bin/ 
+RUN chmod +x /opt/GitRepos/SHCoeffsDev/sh_coeffs.jl
 WORKDIR /
 
 # Barely achieves anything, but clean up
