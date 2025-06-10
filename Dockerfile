@@ -1,5 +1,5 @@
 # Debian base image
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -9,7 +9,16 @@ ENV PATH=$MAMBA_ROOT_PREFIX/bin:$PATH
 # Install base dependencies and micromamba
 RUN apt-get update && apt-get install -y \
     curl \
-    wget \
+    gcc \
+    g++ \    
+    cmake \
+    libfftw3-dev \
+    libjpeg-dev \
+    libgmp-dev \
+    libmpfr-dev \
+    libboost-all-dev \
+    # libcgal-dev \  # apt version is out of date, we need to compile ourselves
+    unzip \
     bzip2 \
     git \
     build-essential \
@@ -43,6 +52,10 @@ RUN micromamba create -y -p $MAMBA_ROOT_PREFIX/envs/lirasearch \
     scipy=1.15.2 \
     colorama=0.4.6 \
     numpy=2.2.6 \
+    rdkit=2025.03.2 \
+    openbabel=3.1.1 \
+    #fftw=3.3.10 \
+
     --channel=conda-forge \
     --channel=defaults
 
@@ -57,17 +70,21 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
 # Install Julia (in /opt/, not as root)
 ENV JULIA_VERSION=1.11.4
 ENV JULIA_DEPOT_PATH=/opt/.julia
-RUN wget https://julialang-s3.julialang.org/bin/linux/x64/1.11/julia-$JULIA_VERSION-linux-x86_64.tar.gz && \
-    tar -xvzf julia-$JULIA_VERSION-linux-x86_64.tar.gz && \
+RUN curl -L https://julialang-s3.julialang.org/bin/linux/x64/1.11/julia-$JULIA_VERSION-linux-x86_64.tar.gz -o julia.tar.gz && \
+    tar -xvzf julia.tar.gz && \
     mv julia-$JULIA_VERSION /opt/julia && \
     ln -s /opt/julia/bin/julia /usr/local/bin/julia && \
-    rm julia-$JULIA_VERSION-linux-x86_64.tar.gz
+    rm julia.tar.gz
 
 # Install Julia packages
 ENV JULIA_CPU_TARGET=x86_64;haswell;skylake;skylake-avx512;tigerlake
 RUN julia -e 'using Pkg; Pkg.add.(["Glob", "Printf", "ArgParse", "TimerOutputs", "GeometryBasics", "ImplicitBVH", "Distributions"])'
 RUN julia -e 'using Pkg; Pkg.precompile()'
 #RUN cp -r /root/.julia/environments/v1.11 /opt/juliaenv/
+
+# Install CGAL
+RUN curl -L https://github.com/CGAL/cgal/archive/refs/tags/v6.0.1.zip -o cgal.zip && unzip cgal.zip && mkdir cgal-6.0.1/build && cd cgal-6.0.1/build && cmake .. && make install
+#RUN cd cgal 
 
 # Create and switch to GitRepos directory
 RUN mkdir /opt/GitRepos
@@ -78,13 +95,22 @@ RUN git clone https://github.com/AstexUK/ESP_DNN.git
 RUN git clone https://github.com/AstexUK/esp-surface-generator.git
 #ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
 RUN git clone https://github.com/simonbray/SHCoeffsDev.git
+#RUN git clone https://github.com/simonbray/ShapeSPH
 
 # Install from the git repos
 RUN cd ESP_DNN && python setup.py install && cd ..
 RUN cd esp-surface-generator/ && npm install && cd .. && ln -s /opt/GitRepos/esp-surface-generator/cli.js /usr/bin/esp-surface-generator
+ADD ShapeSPH.zip /opt/GitRepos
+RUN unzip ShapeSPH.zip && cd ShapeSPH/ && make clean && make && ln -s /opt/GitRepos/ShapeSPH/Bin/Linux/ShapeAlign /usr/bin 
+ADD cif2ply.zip /opt/GitRepos
+RUN unzip cif2ply.zip && mkdir cif2ply/build && cd cif2ply/build && cmake -DCMAKE_BUILD_TYPE=Release .. && make && ln -s /opt/GitRepos/cif2ply/build/cif2ply /usr/bin
 RUN ln -s /opt/GitRepos/SHCoeffsDev/sh_coeffs.jl /usr/bin/sh-coeff-calculator && ln -s /opt/GitRepos/SHCoeffsDev/Geotools.jl /usr/bin/ 
 RUN chmod +x /opt/GitRepos/SHCoeffsDev/sh_coeffs.jl
 WORKDIR /
+
+# Add cif2ply and ShapeAlign binaries; could be compiled instead?
+#ADD cif2ply /usr/bin
+#ADD ShapeAlign /usr/bin
 
 # Barely achieves anything, but clean up
 RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
