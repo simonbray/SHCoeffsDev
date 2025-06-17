@@ -5,6 +5,8 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 ENV MAMBA_ROOT_PREFIX=/opt/micromamba
 ENV PATH=$MAMBA_ROOT_PREFIX/bin:$PATH
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH=$JAVA_HOME/bin:$PATH
 
 # Install base dependencies and micromamba
 RUN apt-get update && apt-get install -y \
@@ -28,12 +30,13 @@ RUN apt-get update && apt-get install -y \
     libsm6 \
     libxrender1 \
     software-properties-common \
+    openjdk-17-jdk \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Micromamba
 RUN curl -L https://micromamba.snakepit.net/api/micromamba/linux-64/latest | tar -xvj -C /usr/local/bin --strip-components=1 bin/micromamba
 
-# Create the environment and install packages
+# Create Python2 environment for esp-surface-generator and install packages
 RUN micromamba create -y -p $MAMBA_ROOT_PREFIX/envs/pyenv \
     python=2.7.15 \
     rdkit=2018.09.3 \
@@ -45,6 +48,7 @@ RUN micromamba create -y -p $MAMBA_ROOT_PREFIX/envs/pyenv \
     --channel=conda-forge \
     --channel=defaults
 
+# Create Python3 environment for LiraSearch and install packages
 RUN micromamba create -y -p $MAMBA_ROOT_PREFIX/envs/lirasearch \
     python=3.11 \
     tqdm=4.67.1 \
@@ -55,7 +59,6 @@ RUN micromamba create -y -p $MAMBA_ROOT_PREFIX/envs/lirasearch \
     rdkit=2025.03.2 \
     openbabel=3.1.1 \
     #fftw=3.3.10 \
-
     --channel=conda-forge \
     --channel=defaults
 
@@ -86,6 +89,15 @@ RUN julia -e 'using Pkg; Pkg.precompile()'
 RUN curl -L https://github.com/CGAL/cgal/archive/refs/tags/v6.0.1.zip -o cgal.zip && unzip cgal.zip && mkdir cgal-6.0.1/build && cd cgal-6.0.1/build && cmake .. && make install
 #RUN cd cgal 
 
+# Download and extract Apache Ignite
+ENV IGNITE_VERSION=2.17.0
+RUN curl -L https://downloads.apache.org/ignite/${IGNITE_VERSION}/apache-ignite-${IGNITE_VERSION}-bin.zip -o apache-ignite-${IGNITE_VERSION}-bin.zip && \
+    unzip apache-ignite-${IGNITE_VERSION}-bin.zip && \
+    mv apache-ignite-${IGNITE_VERSION}-bin /opt/ignite && \
+    rm apache-ignite-${IGNITE_VERSION}-bin.zip
+COPY lira_ignite.xml /opt/ignite/config
+COPY lira_default.xml /opt/ignite/config
+
 # Create and switch to GitRepos directory
 RUN mkdir /opt/GitRepos
 WORKDIR /opt/GitRepos
@@ -93,9 +105,7 @@ WORKDIR /opt/GitRepos
 # Clone git repos
 RUN git clone https://github.com/AstexUK/ESP_DNN.git
 RUN git clone https://github.com/AstexUK/esp-surface-generator.git
-#ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
 RUN git clone https://github.com/simonbray/SHCoeffsDev.git
-#RUN git clone https://github.com/simonbray/ShapeSPH
 
 # Install from the git repos
 RUN cd ESP_DNN && python setup.py install && cd ..
@@ -108,9 +118,15 @@ RUN ln -s /opt/GitRepos/SHCoeffsDev/sh_coeffs.jl /usr/bin/sh-coeff-calculator &&
 RUN chmod +x /opt/GitRepos/SHCoeffsDev/sh_coeffs.jl
 WORKDIR /
 
-# Add cif2ply and ShapeAlign binaries; could be compiled instead?
-#ADD cif2ply /usr/bin
-#ADD ShapeAlign /usr/bin
+# Add scripts, test data
+RUN mkdir /opt/ignite/scripts
+COPY lira_search_sdf.py /opt/ignite/scripts
+COPY lira_super.py /opt/ignite/scripts
+COPY convert_sdf_to_pdb.py /opt/ignite/scripts
+COPY test_database.tar /opt/ignite
+RUN tar -xf /opt/ignite/test_database.tar && mv test-database /opt/ignite/ && rm /opt/ignite/test_database.tar 
+RUN mkdir /opt/ignite/work && chmod -R 777 /opt/ignite/work
+RUN mkdir /opt/ignite/storage && chmod -R 777 /opt/ignite/storage
 
 # Barely achieves anything, but clean up
 RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
