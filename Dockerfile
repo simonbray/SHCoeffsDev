@@ -22,7 +22,6 @@ RUN apt-get update && apt-get install -y \
     # libcgal-dev \  # apt version is out of date, we need to compile ourselves
     unzip \
     bzip2 \
-    git \
     build-essential \
     ca-certificates \
     libglib2.0-0 \
@@ -46,7 +45,7 @@ RUN micromamba create -y -p $MAMBA_ROOT_PREFIX/envs/pyenv \
     xarray=0.11.3 \
     ##--channel=rdkit \
     --channel=conda-forge \
-    --channel=defaults
+    && micromamba clean --all --yes
 
 # Create Python3 environment for LiraSearch and install packages
 RUN micromamba create -y -p $MAMBA_ROOT_PREFIX/envs/lirasearch \
@@ -60,7 +59,7 @@ RUN micromamba create -y -p $MAMBA_ROOT_PREFIX/envs/lirasearch \
     openbabel=3.1.1 \
     #fftw=3.3.10 \
     --channel=conda-forge \
-    --channel=defaults
+    && micromamba clean --all --yes
 
 # Activate environment by default
 ENV PATH=$MAMBA_ROOT_PREFIX/envs/pyenv/bin:$PATH
@@ -83,11 +82,9 @@ RUN curl -L https://julialang-s3.julialang.org/bin/linux/x64/1.11/julia-$JULIA_V
 ENV JULIA_CPU_TARGET=x86_64;haswell;skylake;skylake-avx512;tigerlake
 RUN julia -e 'using Pkg; Pkg.add.(["Glob", "Printf", "ArgParse", "TimerOutputs", "GeometryBasics", "ImplicitBVH", "Distributions"])'
 RUN julia -e 'using Pkg; Pkg.precompile()'
-#RUN cp -r /root/.julia/environments/v1.11 /opt/juliaenv/
 
 # Install CGAL
-RUN curl -L https://github.com/CGAL/cgal/archive/refs/tags/v6.0.1.zip -o cgal.zip && unzip cgal.zip && mkdir cgal-6.0.1/build && cd cgal-6.0.1/build && cmake .. && make install
-#RUN cd cgal 
+RUN curl -L https://github.com/CGAL/cgal/archive/refs/tags/v6.0.1.zip -o cgal.zip && unzip cgal.zip && rm cgal.zip && mkdir cgal-6.0.1/build && cd cgal-6.0.1/build && cmake .. && make install
 
 # Download and extract Apache Ignite
 ENV IGNITE_VERSION=2.17.0
@@ -102,20 +99,16 @@ COPY lira_default.xml /opt/ignite/config
 RUN mkdir /opt/GitRepos
 WORKDIR /opt/GitRepos
 
-# Clone git repos
-RUN git clone https://github.com/AstexUK/ESP_DNN.git
-RUN git clone https://github.com/AstexUK/esp-surface-generator.git
-RUN git clone https://github.com/simonbray/SHCoeffsDev.git
+# Download and unpack repos from GitHub
+RUN curl -L https://github.com/AstexUK/ESP_DNN/archive/refs/heads/master.zip -o esp_dnn.zip && unzip esp_dnn.zip && cd ESP_DNN-master && python setup.py install && cd .. && rm -rf esp_dnn.zip ESP_DNN-master/build ESP_DNN-master/dist ESP_DNN-master/esp_dnn/ext
+RUN curl -L https://github.com/AstexUK/esp-surface-generator/archive/refs/heads/master.zip -o esp-surface-gen.zip && unzip esp-surface-gen.zip && cd esp-surface-generator-master && npm install && cd .. && ln -s /opt/GitRepos/esp-surface-generator-master/cli.js /usr/bin/esp-surface-generator && rm esp-surface-gen.zip
+RUN curl -L https://github.com/simonbray/SHCoeffsDev/archive/refs/heads/main.zip -o SHCoeffs.zip && unzip SHCoeffs.zip && ln -s /opt/GitRepos/SHCoeffsDev-main/sh_coeffs.jl /usr/bin/sh-coeff-calculator && ln -s /opt/GitRepos/SHCoeffsDev-main/Geotools.jl /usr/bin/ && rm SHCoeffs.zip &&  chmod +x /opt/GitRepos/SHCoeffsDev-main/sh_coeffs.jl
 
-# Install from the git repos
-RUN cd ESP_DNN && python setup.py install && cd ..
-RUN cd esp-surface-generator/ && npm install && cd .. && ln -s /opt/GitRepos/esp-surface-generator/cli.js /usr/bin/esp-surface-generator
+# Install from the repos
 ADD ShapeSPH.zip /opt/GitRepos
-RUN unzip ShapeSPH.zip && cd ShapeSPH/ && make clean && make && ln -s /opt/GitRepos/ShapeSPH/Bin/Linux/ShapeAlign /usr/bin 
+RUN unzip ShapeSPH.zip && cd ShapeSPH/ && make clean && make && mv /opt/GitRepos/ShapeSPH/Bin/Linux/ShapeAlign /usr/bin && cd .. && rm -rf ShapeSPH* 
 ADD cif2ply.zip /opt/GitRepos
-RUN unzip cif2ply.zip && mkdir cif2ply/build && cd cif2ply/build && cmake -DCMAKE_BUILD_TYPE=Release .. && make && ln -s /opt/GitRepos/cif2ply/build/cif2ply /usr/bin
-RUN ln -s /opt/GitRepos/SHCoeffsDev/sh_coeffs.jl /usr/bin/sh-coeff-calculator && ln -s /opt/GitRepos/SHCoeffsDev/Geotools.jl /usr/bin/ 
-RUN chmod +x /opt/GitRepos/SHCoeffsDev/sh_coeffs.jl
+RUN unzip cif2ply.zip && mkdir cif2ply/build && cd cif2ply/build && cmake -DCMAKE_BUILD_TYPE=Release .. && make && mv /opt/GitRepos/cif2ply/build/cif2ply /usr/bin && cd .. && rm -rf cifply*
 WORKDIR /
 
 # Add scripts, test data
@@ -127,10 +120,6 @@ COPY test_database.tar /opt/ignite
 RUN tar -xf /opt/ignite/test_database.tar && mv test-database /opt/ignite/ && rm /opt/ignite/test_database.tar 
 RUN mkdir /opt/ignite/work && chmod -R 777 /opt/ignite/work
 RUN mkdir /opt/ignite/storage && chmod -R 777 /opt/ignite/storage
-
-# Barely achieves anything, but clean up
-RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-RUN micromamba clean --all --yes
 
 # Set default shell to bash
 SHELL ["/bin/bash", "-c"]
